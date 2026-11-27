@@ -1,7 +1,5 @@
 "use client";
 
-import AdSenseBanner from "@/app/components/AdSenseBanner";
-
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -198,7 +196,6 @@ export default function SignupPage() {
           Already have an account? <a href="/login">Log in</a>
         </p>
       
-      <AdSenseBanner style={{ position: "fixed", bottom: 8, left: 0, right: 0, zIndex: 10 }} />
       </div>
     </div>
   );

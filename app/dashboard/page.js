@@ -1,7 +1,5 @@
 "use client";
 
-import AdSenseBanner from "@/app/components/AdSenseBanner";
-
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -338,7 +336,6 @@ export default function DashboardPage() {
           </div>
         )}
       
-        <AdSenseBanner />
       </main>
 
       {dbModalSite && (
@@ -851,44 +848,103 @@ function SiteCard({ site, setMessage, onChanged, onOpenDb }) {
 function CustomDomainPanel({ site, setMessage, onChanged }) {
   const [domain, setDomain] = useState(site.custom_domain || "");
   const [busy, setBusy] = useState(false);
+  const [dnsInfo, setDnsInfo] = useState(null);
 
-  async function submit() {
+  const cleanInput = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  const txtHost = cleanInput ? `_lavamc.${cleanInput}` : "_lavamc.yourdomain.com";
+  const txtValue = `lavamc-verify=${site.subdomain}`;
+
+  async function verifyAndPublishDomain() {
+    if (!cleanInput) return;
     setBusy(true);
-    const { error } = await supabase
-      .from("sites")
-      .update({ custom_domain: domain.trim().toLowerCase(), custom_domain_status: "pending" })
-      .eq("id", site.id);
-    setBusy(false);
-    if (error) {
-      setMessage({ tone: "error", text: error.message });
-      return;
+    setDnsInfo(null);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.access_token || "";
+      const res = await fetch("/api/domains/verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ siteId: site.id, domain: cleanInput }),
+      });
+      const data = await res.json();
+      setDnsInfo(data);
+      if (data?.verified) {
+        setMessage({ tone: "info", text: `✓ ${data.message}` });
+      } else {
+        setMessage({ tone: "error", text: data?.message || data?.error || "DNS record not matched yet." });
+      }
+      onChanged();
+    } catch (err) {
+      setMessage({ tone: "error", text: err.message });
+    } finally {
+      setBusy(false);
     }
-    setMessage({ tone: "info", text: "Custom domain submitted for review!" });
-    onChanged();
   }
 
   return (
     <div style={{ marginTop: 16, borderTop: "1px solid var(--line-soft)", paddingTop: 14 }}>
-      <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "0 0 10px" }}>
-        Point a <code>CNAME</code> record for your domain to <code>cname.vercel-dns.com</code> and submit below:
+      <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", marginBottom: 6 }}>
+        🌐 Custom Domain Auto-Connect (CNAME & TXT DNS Verification)
+      </div>
+      <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.5 }}>
+        Add either the <strong>CNAME</strong> record OR the <strong>TXT</strong> verification record in your domain DNS panel, then click <strong>Verify & Publish Now</strong> to make your domain live automatically:
       </p>
+
+      <div
+        style={{
+          background: "var(--bg-sunken)",
+          border: "1px solid var(--line)",
+          borderRadius: 10,
+          padding: "10px 14px",
+          fontSize: 12,
+          marginBottom: 12,
+          display: "grid",
+          gap: 6,
+        }}
+      >
+        <div>
+          <span className="badge blue" style={{ marginRight: 6 }}>Option 1: CNAME</span>
+          Host: <code>{cleanInput || "www.yourdomain.com"}</code> → Target: <code>cname.vercel-dns.com</code>
+        </div>
+        <div>
+          <span className="badge blue" style={{ marginRight: 6 }}>Option 2: TXT</span>
+          Host: <code>{txtHost}</code> → Value: <code>{txtValue}</code>
+        </div>
+      </div>
+
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <input
           className="input"
           value={domain}
           onChange={(e) => setDomain(e.target.value)}
-          placeholder="www.custom-site.com"
-          style={{ maxWidth: 260 }}
+          placeholder="www.yourdomain.com"
+          style={{ maxWidth: 270 }}
         />
-        <button className="btn btn-primary" onClick={submit} disabled={busy || !domain.trim()}>
-          {site.custom_domain_status === "none" ? "Request Domain" : "Update Domain"}
+        <button className="btn btn-primary" onClick={verifyAndPublishDomain} disabled={busy || !cleanInput}>
+          {busy ? "Checking DNS…" : "⚡ Verify & Publish Now"}
         </button>
       </div>
+
+      {site.custom_domain_status === "approved" && (
+        <p style={{ fontSize: 12.5, color: "#4ade80", marginTop: 8 }}>
+          ● Verified & Live: <code>https://{site.custom_domain}</code>
+        </p>
+      )}
       {site.custom_domain_status === "pending" && (
-        <p style={{ fontSize: 12, color: "#fbbf24", marginTop: 8 }}>Status: Pending admin approval.</p>
+        <p style={{ fontSize: 12, color: "#fbbf24", marginTop: 8 }}>
+          Status: Waiting for DNS propagation (CNAME or TXT). Click Verify & Publish Now after adding DNS records.
+        </p>
       )}
       {site.custom_domain_status === "rejected" && (
         <p style={{ fontSize: 12, color: "#f87171", marginTop: 8 }}>Status: Rejected.</p>
+      )}
+      {dnsInfo && !dnsInfo.verified && (
+        <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
+          DNS Check: CNAME matched = {dnsInfo.cnameVerified ? "Yes" : "No"}, TXT matched = {dnsInfo.txtVerified ? "Yes" : "No"}
+        </div>
       )}
     </div>
   );

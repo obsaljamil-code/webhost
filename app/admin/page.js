@@ -44,11 +44,21 @@ export default function AdminPage() {
     persistChat([]);
   }
 
+  async function getAuthHeaders() {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token || "";
+    return {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  }
+
   async function loadAll() {
     setError("");
+    const headers = await getAuthHeaders();
     const [uRes, dRes, sRes] = await Promise.all([
-      fetch("/api/admin/users"),
-      fetch("/api/admin/domains"),
+      fetch("/api/admin/users", { headers }),
+      fetch("/api/admin/domains", { headers }),
       supabase
         .from("sites")
         .select("id, subdomain, title, owner_id, is_published, view_count, custom_domain, custom_domain_status, created_at")
@@ -56,7 +66,7 @@ export default function AdminPage() {
     ]);
 
     if (uRes.status === 403 || uRes.status === 401) {
-      setError("Admin access required.");
+      setError("Admin access required. Make sure your account has is_admin = true in Supabase profiles and SUPABASE_SERVICE_ROLE_KEY is set in Vercel.");
       setLoading(false);
       return;
     }
@@ -64,7 +74,7 @@ export default function AdminPage() {
     const uData = await uRes.json();
     const dData = await dRes.json();
     setUsers(uData.users || []);
-    setDomains(dData.domains || []);
+    setDomains(dData.requests || dData.domains || []);
     setAllSites(sRes.data || []);
     setLoading(false);
   }
@@ -185,28 +195,32 @@ export default function AdminPage() {
   }
 
   async function toggleBan(u) {
+    const headers = await getAuthHeaders();
     await fetch("/api/admin/ban", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: u.id, banned: !u.is_banned }),
+      headers,
+      body: JSON.stringify({ userId: u.id, banned: !(u.isBanned ?? u.is_banned) }),
     });
     loadAll();
   }
 
   async function changeLimit(u, siteLimit) {
+    const headers = await getAuthHeaders();
     await fetch("/api/admin/limit", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ userId: u.id, siteLimit: Number(siteLimit) }),
     });
     loadAll();
   }
 
   async function decideDomain(siteId, decision) {
+    const headers = await getAuthHeaders();
+    const status = decision === "approve" ? "approved" : "rejected";
     await fetch("/api/admin/domains", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ siteId, decision }),
+      headers,
+      body: JSON.stringify({ siteId, status }),
     });
     loadAll();
   }
@@ -533,18 +547,19 @@ export default function AdminPage() {
                   {users.map((u) => (
                     <tr key={u.id}>
                       <td>
-                        <div style={{ fontWeight: 500, color: "#fff" }}>{u.display_name || "—"}</div>
+                        <div style={{ fontWeight: 500, color: "#fff" }}>{u.displayName || u.display_name || "—"}</div>
                         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{u.email}</div>
                       </td>
-                      <td>{u.site_count}</td>
+                      <td>{u.siteCount ?? u.site_count ?? 0}</td>
                       <td>
                         <input
                           type="number"
                           min={0}
-                          max={100}
-                          defaultValue={u.site_limit}
+                          max={1000}
+                          defaultValue={u.siteLimit ?? u.site_limit ?? 3}
                           onBlur={(e) => {
-                            if (Number(e.target.value) !== u.site_limit) {
+                            const cur = u.siteLimit ?? u.site_limit ?? 3;
+                            if (Number(e.target.value) !== cur) {
                               changeLimit(u, e.target.value);
                             }
                           }}
@@ -553,7 +568,7 @@ export default function AdminPage() {
                         />
                       </td>
                       <td>
-                        {u.is_banned ? (
+                        {(u.isBanned ?? u.is_banned) ? (
                           <span className="badge warn">Banned</span>
                         ) : (
                           <span className="badge good">Active</span>
@@ -565,7 +580,7 @@ export default function AdminPage() {
                           style={{ padding: "5px 12px", fontSize: 12 }}
                           onClick={() => toggleBan(u)}
                         >
-                          {u.is_banned ? "Unban" : "Ban"}
+                          {(u.isBanned ?? u.is_banned) ? "Unban" : "Ban"}
                         </button>
                       </td>
                     </tr>

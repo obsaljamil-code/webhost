@@ -6,8 +6,7 @@ import { NextResponse } from "next/server";
 // anytime in this file (or override it via Vercel env var GEMINI_API_KEY).
 // End-users NEVER see this key and NEVER get an API key input/save box.
 // ============================================================================
-export const DEMO_AI_STUDIO_API_KEY =
-  process.env.GEMINI_API_KEY;
+export const DEMO_AI_STUDIO_API_KEY = "";
 
 function getActiveApiKey() {
   const envKey = (process.env.GEMINI_API_KEY || "").trim();
